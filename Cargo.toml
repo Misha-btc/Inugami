@@ -8,9 +8,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 anyhow = "1.0.94"
-alkanes-runtime = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "5b828be9" }
-alkanes-support = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "5b828be9" }
-metashrew-support = { git = "https://github.com/sandshrewmetaprotocols/metashrew", rev = "0736032b" }
+alkanes-runtime = { git = "https://github.com/kungfuflex/alkanes-rs" }
+alkanes-support = { git = "https://github.com/kungfuflex/alkanes-rs" }
+metashrew-support = { git = "https://github.com/sandshrewmetaprotocols/metashrew" }
 bitcoin = { version = "0.32.4", features = ["rand"] }
 
 [profile.release]

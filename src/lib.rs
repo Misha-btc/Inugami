@@ -1,62 +1,9 @@
 use alkanes_runtime::runtime::AlkaneResponder;
 use alkanes_runtime::{declare_alkane, message::MessageDispatch, token::Token};
 use alkanes_support::response::CallResponse;
-use alkanes_support::context::Context;
 use anyhow::{anyhow, Result};
-use bitcoin::{Transaction, Txid};
 use metashrew_support::compat::to_arraybuffer_layout;
-use metashrew_support::utils::consensus_decode;
 
-pub struct ContextHandle(());
-
-#[cfg(test)]
-impl ContextHandle {
-    pub fn transaction(&self) -> Vec<u8> {
-        Vec::new()
-    }
-    
-    pub fn block(&self) -> Vec<u8> {
-        Vec::new()
-    }
-}
-
-#[cfg(not(test))]
-impl ContextHandle {
-    pub fn transaction(&self) -> Vec<u8> {
-        AlkaneResponder::transaction(self)
-    }
-    
-    pub fn block(&self) -> Vec<u8> {
-        AlkaneResponder::block(self)
-    }
-}
-
-impl AlkaneResponder for ContextHandle {}
-
-pub const CONTEXT: ContextHandle = ContextHandle(());
-
-trait ContextExt {
-    fn transaction_id(&self) -> Result<Txid>;
-}
-
-#[cfg(test)]
-impl ContextExt for Context {
-    fn transaction_id(&self) -> Result<Txid> {
-        Ok(Txid::from_slice(&[0; 32]).unwrap_or_else(|_| {
-            panic!("Failed to create zero Txid")
-        }))
-    }
-}
-
-#[cfg(not(test))]
-impl ContextExt for Context {
-    fn transaction_id(&self) -> Result<Txid> {
-        Ok(
-            consensus_decode::<Transaction>(&mut std::io::Cursor::new(CONTEXT.transaction()))?
-                .compute_txid(),
-        )
-    }
-}
 
 #[derive(Default)]
 pub struct Inugami(());
@@ -102,51 +49,18 @@ impl Inugami {
         key
     }
 
-    pub fn get_coinbase_script_sig(&self, block_data: &[u8]) -> Result<Vec<u8>> {
-        use std::io::{Cursor, Read};
-        use bitcoin::consensus::{Decodable, encode::VarInt};
+    pub fn get_coinbase_script_sig(&self) -> Result<Vec<u8>> {
+        let tx = self.coinbase_tx()?;
 
-        const BLOCK_HEADER_SIZE: usize = 80;
-
-        if block_data.len() < BLOCK_HEADER_SIZE + 1 {
-            return Err(anyhow!("Block data too short"));
+        if tx.input.is_empty() {
+            return Err(anyhow!("Coinbase transaction has no inputs"));
         }
 
-        let mut cursor = Cursor::new(&block_data[BLOCK_HEADER_SIZE..]);
-
-        let tx_count = VarInt::consensus_decode(&mut cursor)?;
-        if tx_count.0 == 0 {
-            return Err(anyhow!("Block does not contain transactions"));
-        }
-
-        let mut version = [0u8; 4];
-        cursor.read_exact(&mut version)?;
-
-        let mut marker_flag = [0u8; 2];
-        cursor.read_exact(&mut marker_flag)?;
-        let has_witness = marker_flag == [0x00, 0x01];
-
-        if !has_witness {
-            cursor.set_position(cursor.position() - 2);
-        }
-
-        let input_count = VarInt::consensus_decode(&mut cursor)?;
-        if input_count.0 == 0 {
-            return Err(anyhow!("Coinbase tx has no inputs"));
-        }
-
-        cursor.set_position(cursor.position() + 36);
-
-        let script_len = VarInt::consensus_decode(&mut cursor)?;
-
-        let mut script_sig = vec![0u8; script_len.0 as usize];
-        cursor.read_exact(&mut script_sig)?;
-
-        Ok(script_sig)
+        Ok(tx.input[0].script_sig.as_bytes().to_vec())
     }
 
-    pub fn extract_message_from_coinbase(&self, block_data: &[u8], offset: usize, length: usize) -> Result<Vec<u8>> {
-        let script = self.get_coinbase_script_sig(block_data)?;
+    pub fn extract_message_from_coinbase(&self, offset: usize, length: usize) -> Result<Vec<u8>> {
+        let script = self.get_coinbase_script_sig()?;
         
         if offset >= script.len() {
             return Err(anyhow!("Offset {} exceeds script length {}", offset, script.len()));
@@ -271,8 +185,7 @@ impl Inugami {
             return Err(anyhow!("Message length must be 1-200 bytes"));
         }
 
-        let block_data = CONTEXT.block();
-        let message_bytes = self.extract_message_from_coinbase(&block_data, offset, length)?;
+        let message_bytes = self.extract_message_from_coinbase(offset, length)?;
 
         let _message_str = std::str::from_utf8(&message_bytes)
             .map_err(|_| anyhow!("Invalid UTF-8 message"))?;
