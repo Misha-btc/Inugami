@@ -77,8 +77,8 @@ impl Inugami {
     fn blood_oath(&self) -> Result<CallResponse> {
         let context = self.context()?;
 
-        if context.inputs.len() < 2 {
-            return Err(anyhow!("Invalid calldata: need amount + message"));
+        if context.inputs.len() < 3 {
+            return Err(anyhow!("Invalid calldata: need amount, msg_len, message"));
         }
 
         let amount = context.inputs[1] as u128;
@@ -86,16 +86,17 @@ impl Inugami {
             return Err(anyhow!("Amount cannot be zero"));
         }
 
-        let mut message_bytes: Vec<u8> = context.inputs[2..].iter()
+        let msg_len = context.inputs[2] as usize;
+        if msg_len == 0 || msg_len > 200 {
+            return Err(anyhow!("Message length must be 1-200 bytes"));
+        }
+
+        if context.inputs.len() < 3 + msg_len {
+            return Err(anyhow!("Invalid calldata: message length mismatch"));
+        }
+
+        let message_bytes: Vec<u8> = context.inputs[3..3+msg_len].iter()
             .map(|&b| b as u8).collect();
-
-        while message_bytes.last() == Some(&0x00) {
-            message_bytes.pop();
-        }
-
-        if message_bytes.is_empty() || message_bytes.len() > 200 {
-            return Err(anyhow!("Message must be 1-200 bytes long"));
-        }
 
         let _message_str = std::str::from_utf8(&message_bytes)
             .map_err(|_| anyhow!("Invalid UTF-8 message"))?;
@@ -149,12 +150,8 @@ impl Inugami {
             return Err(anyhow!("Invalid calldata: need message"));
         }
 
-        let mut message_bytes: Vec<u8> = context.inputs[1..].iter()
+        let message_bytes: Vec<u8> = context.inputs[1..].iter()
             .map(|&b| b as u8).collect();
-
-        while message_bytes.last() == Some(&0x00) {
-            message_bytes.pop();
-        }
 
         if message_bytes.is_empty() || message_bytes.len() > 200 {
             return Err(anyhow!("Message must be 1-200 bytes long"));
